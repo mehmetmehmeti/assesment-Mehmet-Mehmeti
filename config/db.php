@@ -9,7 +9,7 @@ class Database {
     
     // Database configuration - UPDATE THESE!
     private $host = 'localhost';
-    private $dbname = 'assesment';
+    private $dbname = 'Project';
     private $username = 'root';
     private $password = '';
     private $charset = 'utf8mb4';

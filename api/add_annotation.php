@@ -20,10 +20,12 @@ if (!$input) {
     $video_id = $_POST['video_id'] ?? '';
     $timestamp = $_POST['timestamp'] ?? '';
     $description = $_POST['description'] ?? '';
+    $data = $_POST['data'] ?? null;
 } else {
     $video_id = $input['video_id'] ?? '';
     $timestamp = $input['timestamp'] ?? '';
     $description = $input['description'] ?? '';
+    $data = $input['data'] ?? null;
 }
 
 // Validate input
@@ -62,16 +64,28 @@ try {
     }
     
     // Insert annotation
-    $stmt = $db->prepare("
-        INSERT INTO annotations (user_id, video_id, timestamp, description) 
-        VALUES (?, ?, ?, ?)
+    $stmt = $db->prepare(" 
+        INSERT INTO annotations (user_id, video_id, timestamp, description, data) 
+        VALUES (?, ?, ?, ?, ?)
     ");
     
+    // Normalize data: allow array/object or JSON string
+    $data_json = null;
+    if ($data !== null && $data !== '') {
+        if (is_string($data)) {
+            $decoded = json_decode($data, true);
+            $data_json = (json_last_error() === JSON_ERROR_NONE) ? json_encode($decoded) : json_encode(['value' => $data]);
+        } else {
+            $data_json = json_encode($data);
+        }
+    }
+
     $stmt->execute([
         $_SESSION['user_id'],
         $video_id,
         $timestamp,
-        $description
+        $description,
+        $data_json
     ]);
     
     $annotation_id = $db->lastInsertId();

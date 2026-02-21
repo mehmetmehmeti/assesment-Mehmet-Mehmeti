@@ -1,12 +1,23 @@
+<?php
+// This file now handles the actual logout after confirmation
+session_start();
 
-
+// Check if this is a GET request (showing the page) or POST request (actual logout)
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // User confirmed logout - destroy session
+    session_destroy();
+    header('Location: index.php');
+    exit;
+} else {
+    // Show confirmation page
+    ?>
     <!DOCTYPE html>
     <html lang="en">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Logout - Video Annotation</title>
-        <link rel="stylesheet" href="assets/css/style.css">
+        <link rel="stylesheet" href="../assets/css/style.css">
     </head>
     <body>
         <div class="auth-container">
@@ -27,5 +38,5 @@
     </html>
     <?php
     exit;
-
+}
 ?>

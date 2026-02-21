@@ -8,7 +8,16 @@
     <link rel="stylesheet" href="../assets/css/style.css">
 </head>
 <body>
-  
+    <?php
+    require_once '../config/auth.php';
+    checkAuth();
+    
+    // Check if user is admin
+    if ($_SESSION['role'] !== 'admin') {
+        header('Location: dashboard.php');
+        exit;
+    }
+    ?>
     
     <nav class="navbar">
         <div class="container">
@@ -65,6 +74,6 @@
         </table>
     </div>
     
-    <script src="assets/js/admin.js"></script>
+    <script src="../assets/js/admin.js"></script>
 </body>
 </html>

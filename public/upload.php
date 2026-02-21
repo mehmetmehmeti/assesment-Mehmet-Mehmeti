@@ -8,7 +8,10 @@
     <link rel="stylesheet" href="../assets/css/style.css">
 </head>
 <body>
-   
+    <?php
+    require_once '../config/auth.php';
+    checkAuth();
+    ?>
     
     <nav class="navbar">
         <div class="container">
@@ -45,6 +48,6 @@
         </div>
     </div>
     
-    <script src="assets/js/upload.js"></script>
+    <script src="../assets/js/upload.js"></script>
 </body>
 </html>
