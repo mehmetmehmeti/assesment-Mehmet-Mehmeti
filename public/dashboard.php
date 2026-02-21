@@ -15,7 +15,7 @@
             
             <div class="nav-links">
                 <a href="dashboard.php">Dashboard</a>
-                <a href="upload.php">Upload</a>
+                <a href="upload.php">Upload</a> 
                 
                 <div class="user-menu">
                     <span>John Doe</span>
