@@ -7,7 +7,20 @@
     <title>Watch Video - Video Annotation</title>
     <link rel="stylesheet" href="../assets/css/style.css">
 </head>
+<script>
+  const videoId = <?= (int)($_GET['id'] ?? 0) ?>;
+</script>
 <body>
+    <?php
+    require_once '../config/auth.php';
+    checkAuth();
+    $video_id = $_GET['id'] ?? '';
+    if (empty($video_id) || !is_numeric($video_id)) {
+        header('Location: dashboard.php');
+        exit;
+    }
+    ?>
+    
     <nav class="navbar">
         <div class="container">
             <a href="dashboard.php" class="logo">← Back to Dashboard</a>
@@ -19,7 +32,7 @@
             <!-- Video Section -->
             <div class="video-section">
                 <video id="videoPlayer" class="video-player" controls>
-                    <source src="uploads/videos/sample.mp4" type="video/mp4">
+                    <!-- Source is set dynamically in ../assets/js/video.js -->
                 </video>
                 
                 <!-- Annotation Canvas -->
@@ -80,6 +93,6 @@
     <script>
         const videoId = <?php echo $video_id; ?>;
     </script>
-    <script src="assets/js/video.js"></script>
+    <script src="../assets/js/video.js"></script>
 </body>
 </html>

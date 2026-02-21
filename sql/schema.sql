@@ -11,6 +11,8 @@ CREATE TABLE videos (
   user_id INT NOT NULL,
   filename VARCHAR(255) NOT NULL,
   original_name VARCHAR(255),
+  title VARCHAR(255) NOT NULL,
+  description VARCHAR (255),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -34,6 +36,7 @@ CREATE TABLE annotations (
   user_id INT NOT NULL,
   timestamp INT NOT NULL,
   description TEXT NOT NULL,
+  data JSON NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
   FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE CASCADE,
