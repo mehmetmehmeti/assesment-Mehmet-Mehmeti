@@ -5,15 +5,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Watch Video - Video Annotation</title>
-    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="../assets/css/style.css">
 </head>
 <body>
-    <?php
-    require_once '../config/auth.php';
-    checkAuth();
-    $video_id = $_GET['id'] ?? 1;
-    ?>
-    
     <nav class="navbar">
         <div class="container">
             <a href="dashboard.php" class="logo">← Back to Dashboard</a>
