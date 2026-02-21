@@ -8,7 +8,11 @@
     <link rel="stylesheet" href="assets/css/style.css">
 </head>
 <body>
-   
+    <?php
+    require_once '../config/auth.php';
+    checkAuth();
+    $video_id = $_GET['id'] ?? 1;
+    ?>
     
     <nav class="navbar">
         <div class="container">
