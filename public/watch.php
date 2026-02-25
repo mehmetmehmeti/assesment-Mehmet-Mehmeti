@@ -89,6 +89,9 @@
                 <button type="button" class="btn btn-secondary" id="addAnnotationBtn" style="margin-top: var(--space-sm); width: 100%;">
                     + Add Annotation
                 </button>
+                <button type="button" class="btn btn-danger" id="deleteSelectedAnnotationsBtn" style="margin-top: var(--space-sm); width: 100%; display: none;" disabled>
+                    Delete Selected Annotations
+                </button>
             </div>
         </div>
     </div>

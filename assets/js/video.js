@@ -12,6 +12,7 @@ const bookmarksPanel = document.getElementById('bookmarksPanel');
 const annotationsPanel = document.getElementById('annotationsPanel');
 const addBookmarkBtn = document.getElementById('addBookmarkBtn');
 const addAnnotationBtn = document.getElementById('addAnnotationBtn');
+const deleteSelectedAnnotationsBtn = document.getElementById('deleteSelectedAnnotationsBtn');
 const annotationPopup = document.getElementById('annotationPopup');
 const annotationPopupText = document.getElementById('annotationPopupText');
 
@@ -28,6 +29,7 @@ let pendingAnnotationSession = null;
 let pendingAnnotationDraft = null;
 let isSavingPendingAnnotation = false;
 let skipNextPlayIntercept = false;
+let selectedAnnotationIds = new Set();
 
 // ✅ NEW: store freehand points while drawing
 let freehandPoints = [];
@@ -154,9 +156,13 @@ async function loadAnnotations() {
         if (data.success) {
             annotations = data.annotations || [];
             annotations.sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
+            selectedAnnotationIds = new Set(
+                [...selectedAnnotationIds].filter(id => annotations.some(a => Number(a.id) === Number(id)))
+            );
             if (document.getElementById('annotationsTab')?.classList.contains('active')) {
                 displayAnnotations();
             }
+            updateDeleteSelectedAnnotationsUI();
         }
     } catch (error) {
         console.error('Failed to load annotations:', error);
@@ -324,7 +330,13 @@ canvas?.addEventListener('mouseup', stopDrawing);
 canvas?.addEventListener('mouseleave', stopDrawing);
 
 function startDrawing(e) {
+    if (!pendingAnnotationSession) {
+        showAnnotationPopup('Click "Add Annotation" first, then draw, then press Play to save.');
+        return;
+    }
+
     isDrawing = true;
+    renderPendingDraftOnCanvas();
 
     const rect = canvas.getBoundingClientRect();
     startX = e.clientX - rect.left;
@@ -363,15 +375,18 @@ function draw(e) {
     } else if (currentTool === 'rectangle') {
         // Clear and redraw for preview (still simplified)
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        renderPendingDraftOnCanvas(false);
         ctx.strokeRect(startX, startY, x - startX, y - startY);
     } else if (currentTool === 'circle') {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        renderPendingDraftOnCanvas(false);
         const radius = Math.sqrt(Math.pow(x - startX, 2) + Math.pow(y - startY, 2));
         ctx.beginPath();
         ctx.arc(startX, startY, radius, 0, 2 * Math.PI);
         ctx.stroke();
     } else if (currentTool === 'arrow') {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        renderPendingDraftOnCanvas(false);
         drawArrow(startX, startY, x, y, currentColor);
     }
 }
@@ -422,23 +437,14 @@ function stopDrawing(e) {
             break;
     }
 
-    // Annotations are now only saved through the "Add Annotation" flow.
-    if (pendingAnnotationSession) {
-        const annotationData = {
-            tool: shapeType,
-            ...coordinates
-        };
+    const annotationData = {
+        tool: shapeType,
+        ...coordinates
+    };
 
-        pendingAnnotationDraft = {
-            timestamp: pendingAnnotationSession.timestamp,
-            description: pendingAnnotationSession.description,
-            data: annotationData
-        };
-
-        showAnnotationPopup('Drawing captured. Click Play to save annotation.');
-    } else {
-        showAnnotationPopup('Click "Add Annotation" first, then draw, then press Play to save.');
-    }
+    appendToPendingAnnotationDraft(annotationData);
+    renderPendingDraftOnCanvas();
+    showAnnotationPopup('Drawing captured. Keep drawing or click Play to save annotation.');
 
     isDrawing = false;
 }
@@ -498,6 +504,31 @@ async function createAnnotation({ timestamp, description, data }) {
     }
 }
 
+function appendToPendingAnnotationDraft(annotationData) {
+    if (!pendingAnnotationSession) return;
+
+    const items = pendingAnnotationDraft?.data?.tool === 'group' && Array.isArray(pendingAnnotationDraft.data.items)
+        ? [...pendingAnnotationDraft.data.items, annotationData]
+        : [annotationData];
+
+    pendingAnnotationDraft = {
+        timestamp: pendingAnnotationSession.timestamp,
+        description: pendingAnnotationSession.description,
+        data: {
+            tool: 'group',
+            items
+        }
+    };
+}
+
+function renderPendingDraftOnCanvas(clearFirst = true) {
+    if (!canvas || !ctx || !pendingAnnotationDraft?.data) return;
+    if (clearFirst) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+    drawParsedAnnotation(pendingAnnotationDraft.data);
+}
+
 async function savePendingAnnotationDraftIfNeeded() {
     if (isSavingPendingAnnotation) return false;
     if (!pendingAnnotationDraft) return true;
@@ -525,6 +556,7 @@ document.getElementById('bookmarksTab')?.addEventListener('click', () => {
     document.getElementById('bookmarksTab').classList.add('active');
     document.getElementById('bookmarksPanel').style.display = 'block';
     document.getElementById('annotationsPanel').style.display = 'none';
+    updateDeleteSelectedAnnotationsUI();
 });
 
 document.getElementById('annotationsTab')?.addEventListener('click', () => {
@@ -535,6 +567,7 @@ document.getElementById('annotationsTab')?.addEventListener('click', () => {
 
     // Display annotations
     displayAnnotations();
+    updateDeleteSelectedAnnotationsUI();
 });
 
 function displayAnnotations() {
@@ -552,11 +585,18 @@ function displayAnnotations() {
 
     let html = '';
     annotations.forEach(ann => {
+        const annId = Number(ann.id);
+        const isChecked = selectedAnnotationIds.has(annId) ? 'checked' : '';
         html += `
             <div class="bookmark-item" onclick="jumpToTime(${ann.timestamp}); previewAnnotation(${ann.id});">
-                <div>
-                    <strong>${escapeHtml(ann.description)}</strong>
-                    <div style="font-size: 0.8rem; color: var(--gray);">${ann.time_formatted || formatTime(ann.timestamp)}</div>
+                <div style="display:flex; align-items:flex-start; gap:8px; width:100%;">
+                    <input type="checkbox" ${isChecked}
+                        onclick="event.stopPropagation()"
+                        onchange="toggleAnnotationSelection(${ann.id}, this.checked)">
+                    <div style="flex:1;">
+                        <strong>${escapeHtml(ann.description)}</strong>
+                        <div style="font-size: 0.8rem; color: var(--gray);">${ann.time_formatted || formatTime(ann.timestamp)}</div>
+                    </div>
                 </div>
             </div>
         `;
@@ -564,6 +604,63 @@ function displayAnnotations() {
 
     annotationsPanel.innerHTML = html;
 }
+
+window.toggleAnnotationSelection = function(annotationId, checked) {
+    const id = Number(annotationId);
+    if (checked) {
+        selectedAnnotationIds.add(id);
+    } else {
+        selectedAnnotationIds.delete(id);
+    }
+    updateDeleteSelectedAnnotationsUI();
+};
+
+function updateDeleteSelectedAnnotationsUI() {
+    if (!deleteSelectedAnnotationsBtn) return;
+
+    const annotationsTabActive = document.getElementById('annotationsTab')?.classList.contains('active');
+    deleteSelectedAnnotationsBtn.style.display = annotationsTabActive ? 'block' : 'none';
+
+    const count = selectedAnnotationIds.size;
+    deleteSelectedAnnotationsBtn.disabled = count === 0;
+    deleteSelectedAnnotationsBtn.textContent = count > 0
+        ? `Delete Selected Annotations (${count})`
+        : 'Delete Selected Annotations';
+}
+
+deleteSelectedAnnotationsBtn?.addEventListener('click', async () => {
+    if (selectedAnnotationIds.size === 0) return;
+
+    const ids = [...selectedAnnotationIds];
+    const confirmed = confirm(`Delete ${ids.length} selected annotation(s)?`);
+    if (!confirmed) return;
+
+    deleteSelectedAnnotationsBtn.disabled = true;
+
+    let failed = 0;
+    for (const id of ids) {
+        try {
+            const response = await fetch(`../api/delete_annotation.php?id=${id}`, {
+                method: 'DELETE'
+            });
+            const result = await response.json();
+            if (!result.success) failed += 1;
+        } catch (error) {
+            failed += 1;
+            console.error(`Failed to delete annotation ${id}:`, error);
+        }
+    }
+
+    if (failed > 0) {
+        alert(`${failed} annotation(s) could not be deleted.`);
+    }
+
+    selectedAnnotationIds.clear();
+    clearCanvasAndPopup();
+    await loadAnnotations();
+    displayAnnotations();
+    updateDeleteSelectedAnnotationsUI();
+});
 
 window.previewAnnotation = function(annotationId) {
     const ann = annotations.find(a => Number(a.id) === Number(annotationId));
@@ -584,8 +681,18 @@ window.renderSavedAnnotation = function(annotationId) {
 
     // Clear canvas and redraw only that annotation
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawParsedAnnotation(parsed);
+};
 
-    if (!parsed || parsed.tool === 'note') return;
+function drawParsedAnnotation(parsed) {
+    if (!canvas || !ctx || !parsed) return;
+
+    if (parsed.tool === 'note') return;
+
+    if (parsed.tool === 'group' && Array.isArray(parsed.items)) {
+        parsed.items.forEach(drawParsedAnnotation);
+        return;
+    }
 
     ctx.strokeStyle = parsed.color || '#ef4444';
     ctx.lineWidth = parsed.lineWidth || 3;
@@ -614,9 +721,8 @@ window.renderSavedAnnotation = function(annotationId) {
 
     if (parsed.tool === 'arrow') {
         drawArrow(parsed.startX, parsed.startY, parsed.endX, parsed.endY, parsed.color || '#ef4444');
-        return;
     }
-};
+}
 
 function parseAnnotationData(rawData) {
     if (!rawData) return null;
