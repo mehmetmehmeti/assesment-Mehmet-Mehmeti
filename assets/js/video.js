@@ -11,6 +11,9 @@ const timeDisplay = document.getElementById('timeDisplay');
 const bookmarksPanel = document.getElementById('bookmarksPanel');
 const annotationsPanel = document.getElementById('annotationsPanel');
 const addBookmarkBtn = document.getElementById('addBookmarkBtn');
+const addAnnotationBtn = document.getElementById('addAnnotationBtn');
+const annotationPopup = document.getElementById('annotationPopup');
+const annotationPopupText = document.getElementById('annotationPopupText');
 
 // State
 let isDrawing = false;
@@ -19,6 +22,12 @@ let currentColor = '#ef4444';
 let startX, startY;
 let annotations = [];
 let bookmarks = [];
+let lastPlaybackAnnotationSecond = -1;
+let annotationPopupTimer = null;
+let pendingAnnotationSession = null;
+let pendingAnnotationDraft = null;
+let isSavingPendingAnnotation = false;
+let skipNextPlayIntercept = false;
 
 // ✅ NEW: store freehand points while drawing
 let freehandPoints = [];
@@ -30,8 +39,9 @@ let freehandPoints = [];
 // Play/Pause
 playPauseBtn?.addEventListener('click', togglePlay);
 
-function togglePlay() {
+async function togglePlay() {
     if (video.paused) {
+        await savePendingAnnotationDraftIfNeeded();
         video.play();
         playPauseBtn.textContent = '⏸ Pause';
     } else {
@@ -50,6 +60,31 @@ video?.addEventListener('timeupdate', () => {
         const current = formatTime(video.currentTime);
         const duration = formatTime(video.duration);
         if (timeDisplay) timeDisplay.textContent = `${current} / ${duration}`;
+    }
+
+    handlePlaybackAnnotations();
+});
+
+video?.addEventListener('seeked', () => {
+    lastPlaybackAnnotationSecond = -1;
+    clearCanvasAndPopup();
+});
+
+video?.addEventListener('play', async () => {
+    if (skipNextPlayIntercept) {
+        skipNextPlayIntercept = false;
+        return;
+    }
+
+    if (!pendingAnnotationDraft || isSavingPendingAnnotation) return;
+
+    video.pause();
+    const saved = await savePendingAnnotationDraftIfNeeded();
+
+    if (saved !== false) {
+        skipNextPlayIntercept = true;
+        video.play();
+        if (playPauseBtn) playPauseBtn.textContent = '⏸ Pause';
     }
 });
 
@@ -117,7 +152,11 @@ async function loadAnnotations() {
         const data = await response.json();
 
         if (data.success) {
-            annotations = data.annotations;
+            annotations = data.annotations || [];
+            annotations.sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
+            if (document.getElementById('annotationsTab')?.classList.contains('active')) {
+                displayAnnotations();
+            }
         }
     } catch (error) {
         console.error('Failed to load annotations:', error);
@@ -196,6 +235,45 @@ addBookmarkBtn?.addEventListener('click', async () => {
         console.error('Add bookmark error:', error);
     }
 });
+
+async function openAddAnnotationPrompt() {
+    if (!video) {
+        alert('Video player not found on this page.');
+        return;
+    }
+
+    const currentTime = Math.floor(video.currentTime || 0);
+    const defaultText = `Annotation at ${formatTime(currentTime)}`;
+    const description = prompt('Enter annotation text:', defaultText);
+
+    if (!description || !description.trim()) return;
+
+    pendingAnnotationSession = {
+        timestamp: currentTime,
+        description: description.trim()
+    };
+    pendingAnnotationDraft = null;
+
+    // Annotation drawing is easier while paused.
+    video.pause();
+    if (playPauseBtn) playPauseBtn.textContent = '▶ Play';
+
+    showAnnotationPopup(`Annotation started: ${pendingAnnotationSession.description}`);
+}
+
+window.openAddAnnotationPrompt = openAddAnnotationPrompt;
+
+function bindAddAnnotationButton() {
+    const btn = document.getElementById('addAnnotationBtn');
+    if (!btn) return;
+
+    btn.onclick = (e) => {
+        e.preventDefault();
+        window.openAddAnnotationPrompt();
+    };
+}
+
+bindAddAnnotationButton();
 
 // ============================================
 // ANNOTATION DRAWING
@@ -344,8 +422,23 @@ function stopDrawing(e) {
             break;
     }
 
-    // ✅ Save annotation WITH DATA
-    saveAnnotation(shapeType, coordinates);
+    // Annotations are now only saved through the "Add Annotation" flow.
+    if (pendingAnnotationSession) {
+        const annotationData = {
+            tool: shapeType,
+            ...coordinates
+        };
+
+        pendingAnnotationDraft = {
+            timestamp: pendingAnnotationSession.timestamp,
+            description: pendingAnnotationSession.description,
+            data: annotationData
+        };
+
+        showAnnotationPopup('Drawing captured. Click Play to save annotation.');
+    } else {
+        showAnnotationPopup('Click "Add Annotation" first, then draw, then press Play to save.');
+    }
 
     isDrawing = false;
 }
@@ -370,17 +463,7 @@ function drawArrow(x1, y1, x2, y2, color) {
     ctx.fill();
 }
 
-// Save annotation to database
-async function saveAnnotation(shapeType, coordinates) {
-    const currentTime = Math.floor(video.currentTime);
-    const description = prompt('Add a description for this annotation (optional):');
-
-    // ✅ This is the JSON that will be stored in DB `data`
-    const annotationData = {
-        tool: shapeType,
-        ...coordinates
-    };
-
+async function createAnnotation({ timestamp, description, data }) {
     try {
         const response = await fetch('../api/add_annotation.php', {
             method: 'POST',
@@ -389,22 +472,48 @@ async function saveAnnotation(shapeType, coordinates) {
             },
             body: JSON.stringify({
                 video_id: videoId,
-                timestamp: currentTime,
-                description: description || `${shapeType} annotation`,
-                data: annotationData // ✅ THIS FIXES "data = NULL"
+                timestamp,
+                description,
+                data
             })
         });
 
-        const data = await response.json();
+        const result = await response.json();
 
-        if (data.success) {
+        if (result.success) {
             await loadAnnotations();
+            if (description) {
+                showAnnotationPopup(description);
+            }
+            return true;
         } else {
-            console.error(data.error || 'Failed to save annotation');
+            alert(result.error || 'Failed to add annotation');
+            console.error(result.error || 'Failed to save annotation');
+            return false;
         }
     } catch (error) {
+        alert('Connection error');
         console.error('Failed to save annotation:', error);
+        return false;
     }
+}
+
+async function savePendingAnnotationDraftIfNeeded() {
+    if (isSavingPendingAnnotation) return false;
+    if (!pendingAnnotationDraft) return true;
+
+    isSavingPendingAnnotation = true;
+    const draftToSave = { ...pendingAnnotationDraft };
+
+    const saved = await createAnnotation(draftToSave);
+
+    if (saved) {
+        pendingAnnotationDraft = null;
+        pendingAnnotationSession = null;
+    }
+
+    isSavingPendingAnnotation = false;
+    return saved;
 }
 
 // ============================================
@@ -444,7 +553,7 @@ function displayAnnotations() {
     let html = '';
     annotations.forEach(ann => {
         html += `
-            <div class="bookmark-item" onclick="jumpToTime(${ann.timestamp}); renderSavedAnnotation(${ann.id});">
+            <div class="bookmark-item" onclick="jumpToTime(${ann.timestamp}); previewAnnotation(${ann.id});">
                 <div>
                     <strong>${escapeHtml(ann.description)}</strong>
                     <div style="font-size: 0.8rem; color: var(--gray);">${ann.time_formatted || formatTime(ann.timestamp)}</div>
@@ -456,23 +565,27 @@ function displayAnnotations() {
     annotationsPanel.innerHTML = html;
 }
 
+window.previewAnnotation = function(annotationId) {
+    const ann = annotations.find(a => Number(a.id) === Number(annotationId));
+    if (!ann) return;
+
+    renderSavedAnnotation(annotationId);
+    showAnnotationPopup(ann.description || 'Annotation');
+};
+
 // ✅ NEW: Render saved annotation from DB `data`
 window.renderSavedAnnotation = function(annotationId) {
     if (!canvas || !ctx) return;
 
     const ann = annotations.find(a => Number(a.id) === Number(annotationId));
-    if (!ann || !ann.data) return;
+    if (!ann) return;
 
-    let parsed;
-    try {
-        parsed = typeof ann.data === 'string' ? JSON.parse(ann.data) : ann.data;
-    } catch (e) {
-        console.error('Invalid annotation JSON in DB:', e);
-        return;
-    }
+    const parsed = parseAnnotationData(ann.data);
 
     // Clear canvas and redraw only that annotation
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (!parsed || parsed.tool === 'note') return;
 
     ctx.strokeStyle = parsed.color || '#ef4444';
     ctx.lineWidth = parsed.lineWidth || 3;
@@ -505,6 +618,65 @@ window.renderSavedAnnotation = function(annotationId) {
     }
 };
 
+function parseAnnotationData(rawData) {
+    if (!rawData) return null;
+
+    try {
+        return typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
+    } catch (e) {
+        console.error('Invalid annotation JSON in DB:', e);
+        return null;
+    }
+}
+
+function handlePlaybackAnnotations() {
+    if (!video) return;
+
+    const currentSecond = Math.floor(video.currentTime);
+    if (currentSecond === lastPlaybackAnnotationSecond) return;
+    lastPlaybackAnnotationSecond = currentSecond;
+
+    const matches = annotations.filter(a => Number(a.timestamp) === currentSecond);
+    if (matches.length === 0) return;
+
+    const annotationToShow = matches[matches.length - 1];
+    renderSavedAnnotation(annotationToShow.id);
+    showAnnotationPopup(annotationToShow.description || 'Annotation');
+}
+
+function showAnnotationPopup(text) {
+    if (!annotationPopup || !annotationPopupText) return;
+
+    annotationPopupText.textContent = text;
+    annotationPopup.style.display = 'block';
+
+    if (annotationPopupTimer) {
+        clearTimeout(annotationPopupTimer);
+    }
+
+    annotationPopupTimer = setTimeout(() => {
+        annotationPopup.style.display = 'none';
+        if (canvas && ctx) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+    }, 3000);
+}
+
+function clearCanvasAndPopup() {
+    if (canvas && ctx) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    if (annotationPopup) {
+        annotationPopup.style.display = 'none';
+    }
+
+    if (annotationPopupTimer) {
+        clearTimeout(annotationPopupTimer);
+        annotationPopupTimer = null;
+    }
+}
+
 // Helper to prevent XSS
 function escapeHtml(text) {
     if (!text) return '';
@@ -515,6 +687,8 @@ function escapeHtml(text) {
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async () => {
+    bindAddAnnotationButton();
+
     if (document.getElementById('videoPlayer')) {
         await loadVideoDetails();
         await loadBookmarks();

@@ -7,9 +7,6 @@
     <title>Watch Video - Video Annotation</title>
     <link rel="stylesheet" href="../assets/css/style.css">
 </head>
-<script>
-  const videoId = <?= (int)($_GET['id'] ?? 0) ?>;
-</script>
 <body>
     <?php
     require_once '../config/auth.php';
@@ -30,13 +27,16 @@
     <div class="container">
         <div class="player-container">
             <!-- Video Section -->
-            <div class="video-section">
+            <div class="video-section" style="position: relative;">
                 <video id="videoPlayer" class="video-player" controls>
                     <!-- Source is set dynamically in ../assets/js/video.js -->
                 </video>
                 
                 <!-- Annotation Canvas -->
                 <canvas id="annotationCanvas"></canvas>
+                <div id="annotationPopup" style="display:none; position:absolute; top:12px; left:12px; right:12px; z-index:20; pointer-events:none;">
+                    <div id="annotationPopupText" style="display:inline-block; max-width:100%; background:rgba(17,24,39,0.9); color:#fff; padding:10px 14px; border-radius:8px; font-weight:600; box-shadow:0 6px 20px rgba(0,0,0,0.25);"></div>
+                </div>
                 
                 <!-- Custom Controls -->
                 <div class="video-controls">
@@ -83,8 +83,11 @@
                     <div class="loading">Loading annotations...</div>
                 </div>
                 
-                <button class="btn btn-secondary" id="addBookmarkBtn" style="margin-top: var(--space-md); width: 100%;">
+                <button type="button" class="btn btn-secondary" id="addBookmarkBtn" style="margin-top: var(--space-md); width: 100%;">
                     + Add Bookmark at Current Time
+                </button>
+                <button type="button" class="btn btn-secondary" id="addAnnotationBtn" style="margin-top: var(--space-sm); width: 100%;">
+                    + Add Annotation
                 </button>
             </div>
         </div>
@@ -93,6 +96,6 @@
     <script>
         const videoId = <?php echo $video_id; ?>;
     </script>
-    <script src="../assets/js/video.js"></script>
+    <script src="../assets/js/video.js?v=20260225-1"></script>
 </body>
 </html>
